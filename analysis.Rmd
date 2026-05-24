@@ -1,0 +1,164 @@
+---
+title: "Climate, Pollution and Heat-related Health Impacts Analysis"
+output: html_document
+date: "2025-11-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+dir.create("data/processed", recursive = TRUE, showWarnings = FALSE)
+dir.create("figures", recursive = TRUE, showWarnings = FALSE)
+dir.create("results", recursive = TRUE, showWarnings = FALSE)
+```
+
+## 1. Load packages
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(writexl)
+library(broom)
+library(car)
+library(lmtest)
+library(sandwich)
+```
+
+## 2. Load raw data and clean data
+
+```{r}
+raw_data <- read_excel("data/raw/global_climate_health_impact_tracker_2015_2025.xlsx")
+
+vars_core <- raw_data %>%
+  select(
+    record_id, country_code, country_name, region, income_level,
+    date, year, month, week, latitude, longitude, population_millions,
+    temperature_celsius, temp_anomaly_celsius, precipitation_mm,
+    heat_wave_days, drought_indicator, flood_indicator,
+    extreme_weather_events, pm25_ugm3, air_quality_index,
+    respiratory_disease_rate, cardio_mortality_rate,
+    vector_disease_risk_score, waterborne_disease_incidents,
+    heat_related_admissions, healthcare_access_index,
+    gdp_per_capita_usd, mental_health_index, food_security_index
+  )
+
+lowest8_country <- vars_core %>%
+  group_by(country_name) %>%
+  summarise(mean_temp = mean(temperature_celsius, na.rm = TRUE), .groups = "drop") %>%
+  arrange(mean_temp) %>%
+  slice(1:8) %>%
+  pull(country_name)
+
+data_cleaned <- vars_core %>%
+  filter(!country_name %in% lowest8_country, air_quality_index >= 0)
+
+write_xlsx(data_cleaned, "data/processed/Data_Cleaned.xlsx")
+```
+
+## 3. Select variables
+
+```{r}
+vars_used <- c(
+  "heat_related_admissions",
+  "temperature_celsius",
+  "heat_wave_days",
+  "temp_anomaly_celsius",
+  "precipitation_mm",
+  "extreme_weather_events",
+  "pm25_ugm3",
+  "air_quality_index",
+  "healthcare_access_index",
+  "gdp_per_capita_usd"
+)
+
+df <- data_cleaned %>%
+  select(all_of(vars_used)) %>%
+  drop_na()
+
+write_csv(df, "results/data_selected_clean.csv")
+```
+
+## 4. Summary statistics
+
+```{r}
+summary_table <- df %>%
+  summarise(across(everything(), list(
+    min = ~ min(.x, na.rm = TRUE),
+    max = ~ max(.x, na.rm = TRUE),
+    mean = ~ mean(.x, na.rm = TRUE),
+    sd = ~ sd(.x, na.rm = TRUE)
+  )))
+
+summary_table
+write_csv(as.data.frame(summary_table), "results/variable_summary.csv")
+```
+
+## 5. Correlation matrix
+
+```{r}
+cor_pearson <- cor(df, method = "pearson", use = "pairwise.complete.obs")
+write_csv(as.data.frame(cor_pearson), "results/correlation_pearson.csv")
+cor_pearson
+```
+
+## 6. Main regression models
+
+```{r}
+m1 <- lm(heat_related_admissions ~ temperature_celsius + heat_wave_days, data = df)
+
+m2 <- lm(
+  heat_related_admissions ~ temperature_celsius + heat_wave_days +
+    temp_anomaly_celsius + precipitation_mm + extreme_weather_events,
+  data = df
+)
+
+m3 <- lm(
+  heat_related_admissions ~ temperature_celsius + heat_wave_days +
+    temp_anomaly_celsius + precipitation_mm + extreme_weather_events +
+    pm25_ugm3 + air_quality_index + healthcare_access_index + gdp_per_capita_usd,
+  data = df
+)
+
+m4 <- lm(
+  heat_related_admissions ~ temperature_celsius + heat_wave_days +
+    precipitation_mm + healthcare_access_index + gdp_per_capita_usd,
+  data = df
+)
+
+summary(m1)
+summary(m2)
+summary(m3)
+summary(m4)
+```
+
+## 7. Save model outputs
+
+```{r}
+write_csv(tidy(m1), "results/table_M1_key_results.csv")
+write_csv(tidy(m2), "results/table_M2_weather_results.csv")
+write_csv(tidy(m3), "results/table_M3_pollution_econ_results.csv")
+write_csv(tidy(m4), "results/lm_coefficients.csv")
+
+capture.output(summary(m4), file = "results/lm_summary.txt")
+capture.output(bptest(m4), file = "results/breusch_pagan.txt")
+capture.output(dwtest(m4), file = "results/durbin_watson.txt")
+capture.output(coeftest(m4, vcov = vcovHC(m4, type = "HC3")), file = "results/lm_coefficients_robustSE.txt")
+```
+
+## 8. Figures
+
+```{r}
+ggplot(df, aes(x = temperature_celsius, y = heat_related_admissions)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    title = "Temperature and Heat-related Admissions",
+    x = "Temperature, Celsius",
+    y = "Heat-related admissions"
+  )
+
+ggsave("figures/heat_related_admissions.png", width = 10, height = 6, dpi = 300)
+```
+
+## Notes
+
+The original uploaded project contained a longer R Markdown file and many generated outputs. This cleaned GitHub version keeps the project structure simple and reproducible. The full organized copy is available in the zip prepared from the uploaded files.
