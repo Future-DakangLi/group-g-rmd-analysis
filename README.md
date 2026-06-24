@@ -61,4 +61,4 @@ The project uses these packages:
 
 ## Notes
 
-This repository is prepared for the full project. The organized zip contains the data, figures, and generated outputs. If the data should not be public, change the repository visibility to **Private**.
+This repository is prepared as a public project package. The organized materials include the data, figures, and generated outputs used by the analysis.
